@@ -7,6 +7,7 @@ import (
 	"github.com/influxdata/telegraf/filter"
 	"github.com/influxdata/telegraf/plugins/inputs"
 	"github.com/influxdata/telegraf/plugins/inputs/system"
+	"net"
 	"os"
 	"strconv"
 	"strings"
@@ -33,50 +34,59 @@ func (_ *ASNStats) SampleConfig() string {
 }
 
 func (s *ASNStats) Gather(acc telegraf.Accumulator) error {
-	tags := map[string]string{
-		"interface": "ens5",
-	}
-	var pkts_received uint64
-	lines, err := ReadLines("/var/run/asn-ddos/stats/received")
+	netio, err := s.ps.NetIO()
 	if err != nil {
-		//return fmt.Errorf("error getting asn pkts_received info: %s", err)
-		pkts_received = 0
-	} else {
-		if len(lines) != 1 {
-			return fmt.Errorf("wrong pkts_received format")
-		}
-		fields := strings.Fields(lines[0])
-		received, err := strconv.ParseUint(fields[0], 10, 64)
-		if err != nil {
-			return fmt.Errorf("%s", err)
-		}
-		pkts_received = received
-
+		return fmt.Errorf("error getting net io info: %s", err)
 	}
-
-	var pkts_dropped uint64
-	lines, err = ReadLines("/var/run/asn-ddos/stats/dropped")
+	if s.filter == nil {
+		if s.filter, err = filter.Compile(s.Interfaces); err != nil {
+			return fmt.Errorf("error compiling filter: %s", err)
+		}
+	}
+	interfaces, err := net.Interfaces()
 	if err != nil {
-		//return fmt.Errorf("error getting asn pkts_received info: %s", err)
-		pkts_dropped = 0
-	} else {
-		if len(lines) != 1 {
-			return fmt.Errorf("wrong pkts_received format")
+		return fmt.Errorf("error getting list of interfaces: %s", err)
+	}
+	interfacesByName := map[string]net.Interface{}
+	for _, iface := range interfaces {
+		interfacesByName[iface.Name] = iface
+	}
+
+	for _, io := range netio {
+		if len(s.Interfaces) != 0 {
+			var found bool
+
+			if s.filter.Match(io.Name) {
+				found = true
+			}
+
+			if !found {
+				continue
+			}
 		}
-		fields := strings.Fields(lines[0])
-		dropped, err := strconv.ParseUint(fields[0], 10, 64)
+
+		tags := map[string]string{
+			"interface": io.Name,
+		}
+
+		/*
+			Above is the code copied from ./net/net.go, it is for filter the interface listed in .config file
+			Below is customized code for reading data from the file we set in service node
+		*/
+		pktsReceived, err := readNumberFromFile("/var/run/asn-ddos/stats/" + io.Name + "/received")
 		if err != nil {
-			return fmt.Errorf("%s", err)
+			continue
 		}
-		pkts_dropped = dropped
+		pktsDropped, err := readNumberFromFile("/var/run/asn-ddos/stats/" + io.Name + "/dropped")
+		if err != nil {
+			continue
+		}
+		fields := map[string]interface{}{
+			"pkts_received": pktsReceived,
+			"pkts_dropped":  pktsDropped,
+		}
+		acc.AddCounter("asn", fields, tags)
 	}
-
-	fields := map[string]interface{}{
-		"pkts_received": pkts_received,
-		"pkts_dropped":  pkts_dropped,
-	}
-
-	acc.AddCounter("asn", fields, tags)
 	return nil
 }
 func init() {
@@ -118,4 +128,24 @@ func ReadLinesOffsetN(filename string, offset uint, n int) ([]string, error) {
 	}
 
 	return ret, nil
+}
+
+func readNumberFromFile(filePath string) (uint64, error) {
+	var result uint64
+	lines, err := ReadLines(filePath)
+	if err != nil {
+		return 0, fmt.Errorf("error getting asn data info: %s", err)
+	} else {
+		if len(lines) != 1 {
+
+			return 0, fmt.Errorf("wrong result format")
+		}
+		fields := strings.Fields(lines[0])
+		data, err := strconv.ParseUint(fields[0], 10, 64)
+		if err != nil {
+			fmt.Errorf("%s", err)
+		}
+		result = data
+	}
+	return result, nil
 }
