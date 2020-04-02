@@ -73,11 +73,11 @@ func (s *ASNStats) Gather(acc telegraf.Accumulator) error {
 			Above is the code copied from ./net/net.go, it is for filter the interface listed in .config file
 			Below is customized code for reading data from the file we set in service node
 		*/
-		pktsReceived, err := readNumberFromFile("/var/run/asn-ddos/stats/" + io.Name + "/received")
+		pktsReceived, err := readNumberFromFile("/var/run/asn-ddos/" + io.Name + "/received")
 		if err != nil {
 			continue
 		}
-		pktsDropped, err := readNumberFromFile("/var/run/asn-ddos/stats/" + io.Name + "/dropped")
+		pktsDropped, err := readNumberFromFile("/var/run/asn-ddos/" + io.Name + "/dropped")
 		if err != nil {
 			continue
 		}
