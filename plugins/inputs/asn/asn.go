@@ -13,12 +13,16 @@ import (
 	"strings"
 )
 
+var lastPktsReceived uint64 = 0
+var lastPktsDropped uint64 = 0
+
 type ASNStats struct {
 	filter filter.Filter
 	ps     system.PS
 
 	Interfaces []string
-	Virtual    bool
+	NodeType   string
+	factor     uint64
 }
 
 func (_ *ASNStats) Description() string {
@@ -28,7 +32,7 @@ func (_ *ASNStats) Description() string {
 var sampleConfig = `
   ## Need to be done
   # interfaces = ["eth0"]
-  # virtual = true
+  # node_type = "virtual"
 `
 
 func (_ *ASNStats) SampleConfig() string {
@@ -36,10 +40,11 @@ func (_ *ASNStats) SampleConfig() string {
 }
 
 func (s *ASNStats) Gather(acc telegraf.Accumulator) error {
-	var factor uint64 = 1
-	if !s.Virtual {
-		factor = 1024
+	s.factor = 1
+	if s.NodeType == "virtual" {
+		s.factor = 1024
 	}
+	fmt.Println("factor", s.factor)
 	netio, err := s.ps.NetIO()
 	if err != nil {
 		return fmt.Errorf("error getting net io info: %s", err)
@@ -81,28 +86,33 @@ func (s *ASNStats) Gather(acc telegraf.Accumulator) error {
 		*/
 		pktsReceived, err := readNumberFromFile("/var/run/asn/dms/" + io.Name + "/received")
 		if err != nil {
-			pktsReceived = 0
+			pktsReceived = lastPktsReceived
 		}
 		pktsDropped, err := readNumberFromFile("/var/run/asn/dms/" + io.Name + "/dropped")
 		if err != nil {
-			pktsDropped = 0
+			pktsDropped = lastPktsDropped
 		}
 		fields := map[string]interface{}{
-			"pkts_received": pktsReceived * factor,
-			"pkts_dropped":  pktsDropped * factor,
-			"bytes_sent":    io.BytesSent * factor,
-			"bytes_recv":    io.BytesRecv * factor,
-			"packets_sent":  io.PacketsSent * factor,
-			"packets_recv":  io.PacketsRecv * factor,
-			"err_in":        io.Errin * factor,
-			"err_out":       io.Errout * factor,
-			"drop_in":       io.Dropin * factor,
-			"drop_out":      io.Dropout * factor,
+			"pkts_received": s.MultiplyFactor(pktsReceived),
+			"pkts_dropped":  s.MultiplyFactor(pktsDropped),
+			"bytes_sent":    s.MultiplyFactor(io.BytesSent),
+			"bytes_recv":    s.MultiplyFactor(io.BytesRecv),
+			"packets_sent":  s.MultiplyFactor(io.PacketsSent),
+			"packets_recv":  s.MultiplyFactor(io.PacketsRecv),
+			"err_in":        s.MultiplyFactor(io.Errin),
+			"err_out":       s.MultiplyFactor(io.Errout),
+			"drop_in":       s.MultiplyFactor(io.Dropin),
+			"drop_out":      s.MultiplyFactor(io.Dropout),
 		}
 		acc.AddCounter("asn", fields, tags)
 	}
 	return nil
 }
+
+func (s *ASNStats) MultiplyFactor(num uint64) uint64 {
+	return num * s.factor
+}
+
 func init() {
 	inputs.Add("asn", func() telegraf.Input {
 		return &ASNStats{ps: system.NewSystemPS()}
