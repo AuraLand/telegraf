@@ -13,6 +13,11 @@ import (
 	"strings"
 )
 
+const (
+	DefaultFactor uint64 = 5
+	VirtualFactor uint64 = 1024
+)
+
 var lastPktsReceived uint64 = 0
 var lastPktsDropped uint64 = 0
 
@@ -40,9 +45,9 @@ func (_ *ASNStats) SampleConfig() string {
 }
 
 func (s *ASNStats) Gather(acc telegraf.Accumulator) error {
-	s.factor = 1
+	s.factor = DefaultFactor
 	if s.NodeType == "virtual" {
-		s.factor = 1024
+		s.factor = VirtualFactor
 	}
 	fmt.Println("factor", s.factor)
 	netio, err := s.ps.NetIO()
