@@ -18,6 +18,7 @@ type ASNStats struct {
 	ps     system.PS
 
 	Interfaces []string
+	Virtual    bool
 }
 
 func (_ *ASNStats) Description() string {
@@ -27,6 +28,7 @@ func (_ *ASNStats) Description() string {
 var sampleConfig = `
   ## Need to be done
   # interfaces = ["eth0"]
+  # virtual = true
 `
 
 func (_ *ASNStats) SampleConfig() string {
@@ -34,6 +36,10 @@ func (_ *ASNStats) SampleConfig() string {
 }
 
 func (s *ASNStats) Gather(acc telegraf.Accumulator) error {
+	var factor uint64 = 1
+	if !s.Virtual {
+		factor = 1024
+	}
 	netio, err := s.ps.NetIO()
 	if err != nil {
 		return fmt.Errorf("error getting net io info: %s", err)
@@ -75,15 +81,23 @@ func (s *ASNStats) Gather(acc telegraf.Accumulator) error {
 		*/
 		pktsReceived, err := readNumberFromFile("/var/run/asn/dms/" + io.Name + "/received")
 		if err != nil {
-			continue
+			pktsReceived = 0
 		}
 		pktsDropped, err := readNumberFromFile("/var/run/asn/dms/" + io.Name + "/dropped")
 		if err != nil {
-			continue
+			pktsDropped = 0
 		}
 		fields := map[string]interface{}{
-			"pkts_received": pktsReceived,
-			"pkts_dropped":  pktsDropped,
+			"pkts_received": pktsReceived * factor,
+			"pkts_dropped":  pktsDropped * factor,
+			"bytes_sent":    io.BytesSent * factor,
+			"bytes_recv":    io.BytesRecv * factor,
+			"packets_sent":  io.PacketsSent * factor,
+			"packets_recv":  io.PacketsRecv * factor,
+			"err_in":        io.Errin * factor,
+			"err_out":       io.Errout * factor,
+			"drop_in":       io.Dropin * factor,
+			"drop_out":      io.Dropout * factor,
 		}
 		acc.AddCounter("asn", fields, tags)
 	}
