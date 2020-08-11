@@ -27,7 +27,7 @@ type ASNStats struct {
 
 	Interfaces []string
 	NodeType   string
-	factor     uint64
+	Factor     uint64
 }
 
 func (_ *ASNStats) Description() string {
@@ -35,9 +35,10 @@ func (_ *ASNStats) Description() string {
 }
 
 var sampleConfig = `
-  ## Need to be done
+  ## List of interfaces to pull metrics for
   # interfaces = ["eth0"]
-  # node_type = "virtual"
+  ## The factor will multiply on the original value 
+  # factor = 5
 `
 
 func (_ *ASNStats) SampleConfig() string {
@@ -45,11 +46,6 @@ func (_ *ASNStats) SampleConfig() string {
 }
 
 func (s *ASNStats) Gather(acc telegraf.Accumulator) error {
-	s.factor = DefaultFactor
-	if s.NodeType == "virtual" {
-		s.factor = VirtualFactor
-	}
-	fmt.Println("factor", s.factor)
 	netio, err := s.ps.NetIO()
 	if err != nil {
 		return fmt.Errorf("error getting net io info: %s", err)
@@ -92,11 +88,16 @@ func (s *ASNStats) Gather(acc telegraf.Accumulator) error {
 		pktsReceived, err := readNumberFromFile("/var/run/asn/dms/" + io.Name + "/received")
 		if err != nil {
 			pktsReceived = lastPktsReceived
+		} else {
+			lastPktsReceived = pktsReceived
 		}
 		pktsDropped, err := readNumberFromFile("/var/run/asn/dms/" + io.Name + "/dropped")
 		if err != nil {
 			pktsDropped = lastPktsDropped
+		} else {
+			lastPktsDropped = pktsDropped
 		}
+
 		fields := map[string]interface{}{
 			"pkts_received": s.MultiplyFactor(pktsReceived),
 			"pkts_dropped":  s.MultiplyFactor(pktsDropped),
@@ -115,7 +116,7 @@ func (s *ASNStats) Gather(acc telegraf.Accumulator) error {
 }
 
 func (s *ASNStats) MultiplyFactor(num uint64) uint64 {
-	return num * s.factor
+	return num * s.Factor
 }
 
 func init() {
